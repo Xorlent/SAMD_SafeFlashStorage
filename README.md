@@ -365,7 +365,7 @@ Typical write times (erasing + writing ~256 bytes on SAMD21):
 
 This library is based on the original FlashStorage library by Arduino LLC and Cristian Maglie.
 
-Licensed under the GNU Lesser General Public License v2.1 or later.
+Licensed under the GNU Lesser General Public License v2.1.
 
 ## Credits
 

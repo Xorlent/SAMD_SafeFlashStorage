@@ -1,0 +1,24 @@
+#######################################
+# Syntax Coloring Map For SAMD_SafeFlashStorage
+#######################################
+
+#######################################
+# Datatypes (KEYWORD1)
+#######################################
+
+FlashClass	KEYWORD1
+FlashStorageClass	KEYWORD1
+Flash	KEYWORD1
+FlashStorage	KEYWORD1
+
+#######################################
+# Methods and Functions (KEYWORD2)
+#######################################
+
+write	KEYWORD2
+read	KEYWORD2
+erase	KEYWORD2
+
+#######################################
+# Constants (LITERAL1)
+#######################################

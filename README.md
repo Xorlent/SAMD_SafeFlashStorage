@@ -4,13 +4,13 @@ An enhanced version of the original cmaglie/FlashStorage library, this is a safe
 
 ## Features
 
-- ✅ **Type-safe storage** - Store any C/C++ struct or built-in types (int, float, bool, char, etc)
-- ✅ **Automatic data validation** - Built-in checksums and data validity checking
-- ✅ **Write optimization** - Skips no-change writes to preserve flash endurance
-- ✅ **Error handling** - Comprehensive transaction validation with return values
-- ✅ **Corruption detection** - Detects uninitialized, corrupted, or incompatible data
-- ✅ **Easy to use** - Simple read/write API with one-line declarations
-- ✅ **Flash-friendly** - Respects hardware alignment and erase boundaries
+- **Type-safe storage** - Store any C/C++ struct or built-in types (int, float, bool, char, etc)
+- **Automatic data validation** - Built-in checksums and data validity checking
+- **Write optimization** - Skips no-change writes to preserve flash endurance
+- **Error handling** - Comprehensive transaction validation with return values
+- **Corruption detection** - Detects uninitialized, corrupted, or incompatible data
+- **Easy to use** - Simple read/write API with one-line declarations
+- **Flash-friendly** - Respects hardware alignment and erase boundaries
 
 ## Why This Library?
 

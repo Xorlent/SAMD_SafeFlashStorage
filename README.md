@@ -1,151 +1,365 @@
-# Minimal RGB LED Library for the WS2812B
+# SAMD Safe FlashStorage Library for Arduino
 
-The simplest, most lightweight WS2812B RGB LED library for Arduino-ESP32 version 3.3 and higher.  For single RGB control, this library **saves over 76KB of program space** compared to a very popular RGB LED control library.
+An enhanced version of the original cmaglie/FlashStorage library, this is a safe version of the library for storing data structures in flash memory on SAMD21 and SAMD51 microcontrollers. Data persists across power cycles and resets, making it ideal for configuration storage, calibration values, and application state.
 
 ## Features
 
-- **Ultra-minimal** - Uses only ESP32's hardware RMT peripheral and standard C libraries
-- **Simple API** - Just two functions: `begin()` and `set()`
-- **Hardware-based timing** - No CPU overhead for bit timing
-- **8 predefined colors** - Common colors built-in
+- **Type-safe storage** - Store any C/C++ struct or built-in types (int, float, bool, char, etc)
+- **Automatic data validation** - Built-in checksums and data validity checking
+- **Write optimization** - Skips no-change writes to preserve flash endurance
+- **Error handling** - Comprehensive transaction validation with return values
+- **Corruption detection** - Detects uninitialized, corrupted, or incompatible data
+- **Easy to use** - Simple read/write API with one-line declarations
+- **Flash-friendly** - Respects hardware alignment and erase boundaries
 
-## Hardware Connection
+## Why This Library?
 
-Connect your WS2812B LED to your ESP32:
+This is an enhanced version of the original FlashStorage library with safety improvements:
 
-```
-WS2812B Pin  →  ESP32
------------     -----
-VDD (5V)     →  5V
-VSS (GND)    →  GND
-DIN          →  Any GPIO pin (e.g., GPIO 35)
-```
+- **Comprehensive bounds checking** to prevent memory corruption
+- **Prevent integer overflow** in address calculations
+- **Fixed SAMD51 cache handling** per device errata
+- **Enhanced error handling** to ensure safe use
+
+## Compatibility
+
+- SAMD21 and SAMD51-based boards
 
 ## Installation
 
-1. Download or clone this repository
-2. Move the `ESP32_WS2812B` folder to your Arduino libraries folder:
+### Arduino IDE
+
+1. Download this repository as a ZIP file
+2. In Arduino IDE: **Sketch** → **Include Library** → **Add .ZIP Library...**
+3. Select the downloaded ZIP file
+4. Restart Arduino IDE
+
+### Manual Installation
+
+1. Clone or download this repository
+2. Copy the `flashstorage` folder to your Arduino libraries directory:
    - **macOS**: `~/Documents/Arduino/libraries/`
-   - **Windows**: `Documents\Arduino\libraries\`
+   - **Windows**: `C:\Users\[username]\Documents\Arduino\libraries\`
    - **Linux**: `~/Arduino/libraries/`
 3. Restart Arduino IDE
 
-## Usage
+## Basic Usage
 
 ```cpp
-#include "WS2812B.h"
+#include "SAMD_SafeFlashStorage.h"
 
-#define LED_PIN 5  // GPIO pin for WS2812B data (DIN)
-
-WS2812B led;
+// Create a flash storage instance for an int
+FlashStorage(bootCounter, int);
 
 void setup() {
-  // Initialize with GPIO pin number
-  led.begin(LED_PIN);
-}
-
-void loop() {
-  // Flash red with a 1 second interval
-  led.set("red", 255); // brightness value optional (default 255)
-  delay(1000);
-  led.set("black");
-  delay(1000);
+  Serial.begin(9600);
+  
+  int count;
+  
+  // Read from flash (returns false if no valid data)
+  if (bootCounter.read(&count)) {
+    // Valid data found - increment it
+    count++;
+    Serial.print("Boot count: ");
+    Serial.println(count);
+  } else {
+    // No valid data - this is the first run
+    count = 1;
+    Serial.println("First boot!");
+  }
+  
+  // Write to flash
+  bootCounter.write(count);
 }
 ```
+
+## Complete Example
+
+See [examples/BasicUsage/BasicUsage.ino](examples/BasicUsage/BasicUsage.ino) for a complete working example that demonstrates:
+
+- Reading existing configuration or initializing defaults
+- Writing configuration to flash
+- Verifying data integrity
+- No-change write optimization
+- Persistence via a "Boot" counter
 
 ## API Reference
 
-### `bool begin(uint8_t pin)`
-
-Initialize the WS2812B controller on the specified GPIO pin.
-
-- **Parameters**: `pin` - GPIO pin number (e.g., 5)
-- **Returns**: `true` on success, `false` on failure
-
-### `void set(const char* color, uint8_t brightness = 255)`
-
-Set the LED color and brightness.
-
-- **Parameters**:
-  - `color` - Color name (see below)
-  - `brightness` - Brightness level from 1-255 (255 = full brightness)
-    - Ignored for "black" (always off)
-- **Returns**: None
-
-### Supported Colors
-
-| Color String | RGB Values | Alternative |
-|-------------|------------|-------------|
-| `"black"`   | Off        | -           |
-| `"white"`   | 255,255,255| -           |
-| `"red"`     | 255,0,0    | `"R"`       |
-| `"green"`   | 0,255,0    | `"G"`       |
-| `"blue"`    | 0,0,255    | `"B"`       |
-| `"purple"`  | 128,0,128  | -           |
-| `"yellow"`  | 255,255,0  | -           |
-| `"orange"`  | 255,165,0  | -           |
-
-'
-## Thread Safety
-
-This library is designed for **single-threaded use** (typical Arduino `setup()`/`loop()` pattern). If you need to control the LED from multiple FreeRTOS tasks, protect access with a mutex:
+### Creating a Storage Instance
 
 ```cpp
-#include "WS2812B.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/semphr.h"
+FlashStorage(name, DataType);
+```
 
-WS2812B led;
-SemaphoreHandle_t ledMutex;
+- **name**: Unique identifier for this storage (must be unique across your sketch)
+- **DataType**: Your struct or POD type (plain old data - no pointers, virtual functions, or dynamic types)
 
-void setup() {
-  led.begin(5);
-  ledMutex = xSemaphoreCreateMutex();
-}
+### Writing Data
 
-void task1(void* param) {
-  while(1) {
-    xSemaphoreTake(ledMutex, portMAX_DELAY);
-    led.set("red", 255);
-    xSemaphoreGive(ledMutex);
-    vTaskDelay(1000 / portTICK_PERIOD_MS);
-  }
-}
+```cpp
+bool write(DataType data);
+```
 
-void task2(void* param) {
-  while(1) {
-    xSemaphoreTake(ledMutex, portMAX_DELAY);
-    led.set("blue", 128);
-    xSemaphoreGive(ledMutex);
-    vTaskDelay(1000 / portTICK_PERIOD_MS);
-  }
+Writes data to flash memory. Returns `true` on success, `false` on error.
+
+**Note:** Automatically skips write if data hasn't changed to preserve flash.
+
+**Example:**
+```cpp
+int myValue = 42;
+if (myStorage.write(myValue)) {
+  Serial.println("Saved!");
+} else {
+  Serial.println("Write error.");
 }
 ```
 
-## Requirements
+### Reading Data
 
-- **ESP32 board** (any variant with the RMT peripheral)
-- **Arduino-ESP32 core 3.3 or higher**
-- **Single WS2812B LED**
+```cpp
+bool read(DataType *data);
+```
+
+Reads data from flash memory. Returns `true` if valid data found, `false` if uninitialized/corrupted.
+
+**Example:**
+```cpp
+int myValue;
+if (myStorage.read(&myValue)) {
+  // Valid data found - use myValue
+  Serial.println(myValue);
+} else {
+  // No valid data - we must manually set a default
+  // (the pointer version doesn't do this automatically)
+  myValue = 0;
+}
+```
+
+### Alternative Read (with default)
+
+```cpp
+DataType read();
+```
+
+Returns the stored value, or a default value if read fails.
+
+**What happens on failure:**
+- `int` returns `0`
+- `float` returns `0.0`
+- `bool` returns `false`
+- Structs return with all fields set to zero
+
+**Important:** This version doesn't tell you if the read failed. Use the pointer version `read(&variable)` if you need to know whether valid data was found.
+
+**Example:**
+```cpp
+int myValue = myStorage.read();
+// If read failed, myValue will be 0
+// If read succeeded, myValue will contain the stored value
+// You can't tell which happened!
+```
+
+## Best Practices
+
+### 1. Always Check Return Values
+
+```cpp
+// Good
+if (configStore.write(config)) {
+  Serial.println("Saved successfully");
+} else {
+  Serial.println("Save failed!");
+}
+```
+
+### 2. Initialize Defaults When Read Fails
+
+```cpp
+Configuration config;
+if (!configStore.read(&config)) {
+  // First run or corrupted data - set defaults
+  config.bootCount = 1;
+  config.sensorInterval = 60;
+  config.enableLogging = true;
+  config.calibrationValue = 1.0;
+}
+```
+
+### 3. Avoid Frequent Writes
+
+Flash memory has limited write cycles (~10,000-100,000 erase cycles per block)
+
+```cpp
+// ***** BAD ***** - Writes constantly:
+void loop() {
+  config.counter++;
+  configStore.write(config);  // This will eventually wear out device flash
+  delay(100);
+}
+```
+
+**Note:** The library automatically skips writes when data hasn't changed.  Regardless, avoid calling `write()` unnecessarily.
+
+### 4. Avoid Pointers and Dynamic Types
+
+```cpp
+// ***** GOOD ***** - Plain data types only:
+typedef struct {
+  uint32_t id;
+  float values[10];     // Fixed-size arrays OK
+  char name[32];        // Fixed-size strings OK
+} ValidConfig;
+
+// ***** BAD ***** - Dynamic/complex types:
+typedef struct {
+  String name;          // Dynamic allocation - DON'T USE
+  float *values;        // Pointer - DON'T USE
+  std::vector<int> v;   // STL containers - DON'T USE
+} InvalidConfig;
+```
+
+### 7. Thread/Interrupt Safety
+
+Flash operations are **NOT** interrupt-safe:
+
+```cpp
+// If writing from multiple contexts, protect access:
+void saveConfig() {
+  noInterrupts();
+  configStore.write(config);
+  interrupts();
+}
+
+// Never call from ISR:
+void ISR_handler() {
+  configStore.write(config);  // DON'T DO THIS!
+}
+```
+
+## Memory Considerations
+
+### Flash Allocation
+
+The library allocates flash memory aligned to page boundaries. Page size varies based on total device NVS.  The following are typical values for most development boards:
+
+- **Typical SAMD21**: 256-byte pages
+- **Typical SAMD51**: 8192-byte pages
+
+A small struct like:
+```cpp
+struct Config {
+  uint32_t value1;  // 4 bytes
+  uint16_t value2;  // 2 bytes
+};  // 6 bytes + 4 bytes overhead = 10 bytes actual
+```
+
+Will allocate at least one full page.  This is a hardware limitation, as flash can only be erased in full pages.
+
+### Structure Size Limits
+
+- Maximum practical size: **~8KB per structure**
+- Multiple small structures are more efficient than one large structure
+- Padding/alignment may increase actual size
+
+Check your structure size:
+```cpp
+Serial.print("Config size: ");
+Serial.println(sizeof(Configuration));
+```
 
 ## Troubleshooting
 
-**LED doesn't light up:**
-- Check power connections (WS2812B needs both 5V and GND)
-- Verify data pin connection
-- Try a different GPIO pin (avoid strapping pins like GPIO 0, 2, 12, 15)
+### "FlashStorage library only supports SAMD microcontrollers"
 
-**LED shows wrong colors:**
-- Some WS2812B variants use RGB instead of GRB - check your LED's datasheet
-Simply change the order of the g, r, b in WS2812B.cpp here:
+**Cause:** Trying to compile for an unsupported platform (AVR, ESP32, etc.)
+
+**Solution:** This library only works on SAMD21 and SAMD51 boards.
+
+### Write/Read Returns False
+
+**Possible causes:**
+1. **First time running** - No data written yet (normal)
+3. **Bounds check failure** - Very large structures
+4. **Flash corruption** - Rare hardware issue
+
+**Solutions:**
+- Always initialize defaults when `read()` returns false
+- After changing struct, expect old data to be invalid
+- Check structure size with `sizeof()`
+
+### Data Not Persisting
+
+**Possible causes:**
+1. **Write not called** - Check if `write()` is actually executing
+2. **Upload erases flash** - Some bootloaders may erase all user NVS pages
+3. **Power loss during write** - Flash write interrupted
+
+**Solutions:**
+- Verify `write()` returns `true`
+- Check serial output for write confirmation
+- Ensure stable power during writes
+
+## Advanced Topics
+
+### Multiple Storage Instances
+
+You can store multiple independent structures:
+
 ```cpp
-    // WS2812B expects GRB order
-    uint8_t led_data[3] = {g, r, b};
+typedef struct {
+  uint8_t brightness;
+  uint8_t volume;
+} UserSettings;
+
+typedef struct {
+  float offset;
+  float scale;
+} SensorCalibration;
+
+FlashStorage(settings, UserSettings);
+FlashStorage(calibration, SensorCalibration);
+
+void setup() {
+  UserSettings s;
+  SensorCalibration c;
+  
+  // Always check if reads succeeded
+  if (!settings.read(&s)) {
+    // No valid data - initialize defaults
+    s.brightness = 128;
+    s.volume = 50;
+  }
+  
+  if (!calibration.read(&c)) {
+    // No valid data - initialize defaults
+    c.offset = 0.0;
+    c.scale = 1.0;
+  }
+  
+  // Each has independent storage and validation
+}
 ```
 
-**Compilation errors:**
-- Ensure the Arduino-ESP32 board library is version 3.3 or higher
+### Data Validation
 
-## License
+The library automatically validates:
+- **Structure identity** - Hash of name + size
+- **Data integrity** - Checksum of data bytes
 
-This library is released under the MIT License. See the LICENSE file for details.
+This protects against:
+- Reading wrong variable
+- Structure size changes
+- Bit corruption
+- Uninitialized flash
+
+## Performance
+
+### Write Performance
+
+Typical write times (erasing + writing ~256 bytes on SAMD21):
+- **First write (erase+write)**: 500-2000 µs
+- **Optimized write (unchanged data)**: 20-100 µs
+
+## Credits
+
+- This library is based on the original FlashStorage library: Arduino LLC / Cristian Maglie

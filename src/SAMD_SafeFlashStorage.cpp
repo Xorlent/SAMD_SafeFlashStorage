@@ -76,10 +76,11 @@ static void invalidate_CMCC_cache()
 {
   if (CMCC->SR.bit.CSTS) {
     CMCC->CTRL.bit.CEN = 0;
-    while (CMCC->SR.bit.CSTS) {}
+    while (CMCC->SR.bit.CSTS) {}  // Wait for cache to disable
     CMCC->MAINT0.bit.INVALL = 1;
-    while (CMCC->SR.bit.CSTS) {}  // Wait for invalidation to complete
+    // Cache remains disabled during invalidation
     CMCC->CTRL.bit.CEN = 1;
+    while (!CMCC->SR.bit.CSTS) {}  // Wait for cache to re-enable
   }
 }
 #endif
@@ -144,6 +145,9 @@ bool FlashClass::write(const volatile void *flash_ptr, const void *data, uint32_
   // Restore original NVMCTRL cache settings after all writes complete
   NVMCTRL->CTRLA.bit.CACHEDIS0 = original_CACHEDIS0;
   NVMCTRL->CTRLA.bit.CACHEDIS1 = original_CACHEDIS1;
+  // Memory barrier to ensure flash write completion before subsequent reads
+  __DSB();
+  __ISB();
 #endif
   
   return true;
@@ -164,7 +168,11 @@ bool FlashClass::erase(const volatile void *flash_ptr, uint32_t size)
     ptr += ROW_SIZE;
     size -= ROW_SIZE;
   }
-  return erase(ptr);
+  // Erase remaining partial or full row if any data remains
+  if (size > 0) {
+    return erase(ptr);
+  }
+  return true;
 }
 
 bool FlashClass::erase(const volatile void *flash_ptr)
@@ -179,12 +187,16 @@ bool FlashClass::erase(const volatile void *flash_ptr)
     return false;
   }
   
-  // Verify it's in flash memory range (SAMD21: 0x0-0x40000, SAMD51: 0x0-0x100000)
+  // Verify it's in flash memory range by reading actual device flash size
+  // NVMP = # of NVM pages
+  // For SAMD21: NVMP * PAGE_SIZE = total flash
+  // For SAMD51: NVMP represents blocks of 64 rows, so total flash = NVMP * PAGE_SIZE * 64
 #if defined(__SAMD51__)
-  if (addr >= 0x00100000) {
+  uint32_t flash_size_bytes = NVMCTRL->PARAM.bit.NVMP * PAGE_SIZE * 64;
 #else
-  if (addr >= 0x00040000) {
+  uint32_t flash_size_bytes = NVMCTRL->PARAM.bit.NVMP * PAGE_SIZE;
 #endif
+  if (addr >= flash_size_bytes) {
     return false;
   }
   
@@ -193,6 +205,9 @@ bool FlashClass::erase(const volatile void *flash_ptr)
   NVMCTRL->CTRLB.reg = NVMCTRL_CTRLB_CMDEX_KEY | NVMCTRL_CTRLB_CMD_EB;
   while (!NVMCTRL->INTFLAG.bit.DONE) { }
   invalidate_CMCC_cache();
+  // Memory barrier to ensure erase completion
+  __DSB();
+  __ISB();
 #else
   NVMCTRL->ADDR.reg = ((uint32_t)flash_ptr) / 2;
   NVMCTRL->CTRLA.reg = NVMCTRL_CTRLA_CMDEX_KEY | NVMCTRL_CTRLA_CMD_ER;
@@ -209,6 +224,17 @@ bool FlashClass::read(const volatile void *flash_ptr, void *data, uint32_t size)
     return false;
   }
   
+#if defined(__SAMD51__)
+  // Ensure all flash operations complete before reading
+  __DSB();
+#endif
+  
   memcpy(data, (const void *)flash_ptr, size);
+  
+#if defined(__SAMD51__)
+  // Memory barrier after read to ensure data integrity
+  __DSB();
+#endif
+  
   return true;
 }

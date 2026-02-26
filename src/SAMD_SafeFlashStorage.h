@@ -24,11 +24,6 @@
 
 #include <Arduino.h>
 
-// Platform validation - only SAMD architecture is supported
-#if !defined(ARDUINO_ARCH_SAMD)
-  #error "FlashStorage library only supports SAMD microcontrollers (SAMD21/SAMD51)"
-#endif
-
 // Concatenate after macro expansion (namespaced to avoid conflicts)
 #define FLASHSTORAGE_PPCAT_NX(A, B) A ## B
 #define FLASHSTORAGE_PPCAT(A, B) FLASHSTORAGE_PPCAT_NX(A, B)

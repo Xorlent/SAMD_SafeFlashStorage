@@ -352,6 +352,12 @@ This protects against:
 - Bit corruption
 - Uninitialized flash
 
+### Limitations
+
+**Hash Collisions:** The library uses a 16-bit hash to identify FlashStorage instances.  With numerous instances in a project (unlikely), hash collisions could occur.  To minimize this risk:
+- Use unique, descriptive variable names
+- Limit the total number of FlashStorage instances per project (<10 is best)
+
 ## Performance
 
 ### Write Performance

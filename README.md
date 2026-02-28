@@ -218,22 +218,18 @@ typedef struct {
 } InvalidConfig;
 ```
 
-### 7. Thread/Interrupt Safety
+### 7. Thread Safety
 
-Flash operations are **NOT** interrupt-safe:
+Flash operations are **NOT** safe to call from interrupt service routines (ISRs):
 
 ```cpp
-// If writing from multiple contexts, protect access:
-void saveConfig() {
-  noInterrupts();
-  configStore.write(config);
-  interrupts();
-}
-
 // Never call from ISR:
 void ISR_handler() {
   configStore.write(config);  // DON'T DO THIS!
 }
+```
+
+**Note:** The library automatically disables interrupts during flash operations to prevent conflicts. You do not need to manually wrap calls with `noInterrupts()`/`interrupts()`.  Do not never call flash operations from within an ISR, as this would attempt to disable interrupts while already in an interrupt context.
 ```
 
 ## Memory Considerations

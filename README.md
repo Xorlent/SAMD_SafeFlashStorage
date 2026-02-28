@@ -229,7 +229,7 @@ void ISR_handler() {
 }
 ```
 
-**Note:** The library automatically disables interrupts during flash operations to prevent conflicts. You do not need to manually wrap calls with `noInterrupts()`/`interrupts()`.  Do not never call flash operations from within an ISR, as this would attempt to disable interrupts while already in an interrupt context.
+**Note:** The library automatically disables interrupts during flash operations to prevent conflicts. You do not need to manually wrap calls with `noInterrupts()`/`interrupts()`.  Do not call flash operations from within an ISR, as this would attempt to disable interrupts while already in an interrupt context.
 ```
 
 ## Memory Considerations

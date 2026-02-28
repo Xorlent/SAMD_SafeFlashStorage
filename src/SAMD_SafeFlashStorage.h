@@ -70,8 +70,7 @@ namespace FlashStorageInternal {
 // WARNING: FlashClass operations are NOT interrupt-safe and NOT thread-safe.
 // - Do not call from interrupt service routines (ISRs)
 // - Do not call concurrently from multiple threads/contexts
-// - Flash operations take milliseconds and block execution
-// - Use noInterrupts()/interrupts() or mutex if concurrent access is possible
+// - Flash operations can take milliseconds and block execution
 class FlashClass {
 public:
   FlashClass(const void *flash_addr = NULL, uint32_t size = 0);

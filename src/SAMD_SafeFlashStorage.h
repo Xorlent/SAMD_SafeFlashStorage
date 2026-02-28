@@ -55,6 +55,7 @@ namespace FlashStorageInternal {
   static const uint8_t FLASHSTORAGE_PPCAT(_data,name)[(sizeof(T)+4+8191)/8192*8192] = { }; \
   FlashStorageClass<T> name(FLASHSTORAGE_PPCAT(_data,name), FlashStorageInternal::hash_variable(#name, sizeof(T)));
 #else
+  // SAMD21: All variants have 64-byte pages, so ROW_SIZE = 256 bytes (64 * 4)
   #define Flash(name, size) \
   __attribute__((__aligned__(256))) \
   static const uint8_t FLASHSTORAGE_PPCAT(_data,name)[(size+255)/256*256] = { }; \
@@ -105,13 +106,31 @@ private:
   uint16_t variable_hash;
   
   // Calculate checksum for data validation
+  // Optimized to process 32-bit words for better performance on ARM Cortex-M
   static uint16_t calcChecksum(const uint8_t* ptr, size_t len) {
-    uint16_t sum = 0xA5A5;  // Non-zero seed for better distribution
-    for (size_t i = 0; i < len; i++) {
-      sum += ptr[i];
-      sum ^= (sum >> 8);  // Mix bits for better distribution
+    uint32_t sum = 0xA5A5A5A5;  // 32-bit seed for better mixing
+    
+    // Process full 32-bit words for efficiency
+    size_t words = len >> 2;  // len / 4
+    const uint32_t* ptr32 = (const uint32_t*)ptr;
+    for (size_t i = 0; i < words; i++) {
+      uint32_t word;
+      // Use memcpy to avoid unaligned access issues
+      memcpy(&word, &ptr32[i], sizeof(uint32_t));
+      sum += word;
+      sum ^= (sum >> 16);  // Mix upper and lower halves
     }
-    return sum;
+    
+    // Process remaining bytes
+    size_t remaining = len & 3;  // len % 4
+    const uint8_t* ptr8 = ptr + (words << 2);
+    for (size_t i = 0; i < remaining; i++) {
+      sum += ptr8[i];
+      sum ^= (sum >> 8);
+    }
+    
+    // Fold 32-bit sum down to 16-bit
+    return (uint16_t)(sum ^ (sum >> 16));
   }
 
 public:

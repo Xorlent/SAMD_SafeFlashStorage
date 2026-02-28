@@ -25,9 +25,9 @@ static const uint32_t pageSizes[] = { 8, 16, 32, 64, 128, 256, 512, 1024 };
 FlashClass::FlashClass(const void *flash_addr, uint32_t size) :
   PAGE_SIZE(pageSizes[NVMCTRL->PARAM.bit.PSZ]),
 #if defined(__SAMD51__)
-  ROW_SIZE((PAGE_SIZE * NVMCTRL->PARAM.bit.NVMP) / 64),
+  ROW_SIZE((PAGE_SIZE * NVMCTRL->PARAM.bit.NVMP) >> 6),  // Divide by 64
 #else
-  ROW_SIZE(PAGE_SIZE * 4),
+  ROW_SIZE(PAGE_SIZE << 2),  // Multiply by 4
 #endif
   flash_address((volatile void *)flash_addr),
   flash_size(size)
@@ -56,14 +56,19 @@ bool FlashClass::isWithinBounds(const volatile void *flash_ptr, uint32_t size) c
   }
   
   uintptr_t op_start = (uintptr_t)flash_ptr;
+  uintptr_t bound_start = (uintptr_t)flash_address;
   
-  // Check for integer overflow before addition
+  // Check for integer overflow in operation range
   if (op_start > UINTPTR_MAX - size) {
     return false;  // Would overflow
   }
   
+  // Check for integer overflow in bounds range
+  if (bound_start > UINTPTR_MAX - flash_size) {
+    return false;  // Bounds configuration invalid
+  }
+  
   uintptr_t op_end = op_start + size;
-  uintptr_t bound_start = (uintptr_t)flash_address;
   uintptr_t bound_end = bound_start + flash_size;
   
   // Check if operation is fully within allocated bounds
@@ -87,15 +92,23 @@ static void invalidate_CMCC_cache()
 
 bool FlashClass::write(const volatile void *flash_ptr, const void *data, uint32_t size)
 {
-  // Bounds check before writing
-  if (!isWithinBounds(flash_ptr, size)) {
+  // Calculate actual bytes that will be written (round up to word boundary)
+  // This is necessary because we write in 32-bit words, so size gets rounded up
+  uint32_t actual_bytes = (size + 3) & ~3U;  // Round up to nearest multiple of 4
+  
+  // Bounds check with the actual size that will be written
+  if (!isWithinBounds(flash_ptr, actual_bytes)) {
     return false;
   }
   
-  // Calculate data boundaries
-  size = (size + 3) / 4;
+  // Disable interrupts during flash operations to prevent ISR conflicts
+  noInterrupts();
+  
+  // Convert size to 32-bit words
+  size = actual_bytes >> 2;
   volatile uint32_t *dst_addr = (volatile uint32_t *)flash_ptr;
   const uint8_t *src_addr = (uint8_t *)data;
+  const uint32_t words_per_page = PAGE_SIZE >> 2;  // Divide by 4 (bytes per word)
 
   // Disable automatic page write
 #if defined(__SAMD51__)
@@ -123,7 +136,7 @@ bool FlashClass::write(const volatile void *flash_ptr, const void *data, uint32_
 
     // Fill page buffer
     uint32_t i;
-    for (i=0; i<(PAGE_SIZE/4) && size; i++) {
+    for (i=0; i<words_per_page && size; i++) {
       *dst_addr = read_unaligned_uint32(src_addr);
       src_addr += 4;
       dst_addr++;
@@ -133,8 +146,9 @@ bool FlashClass::write(const volatile void *flash_ptr, const void *data, uint32_
     // Execute "WP" Write Page
 #if defined(__SAMD51__)
     NVMCTRL->CTRLB.reg = NVMCTRL_CTRLB_CMDEX_KEY | NVMCTRL_CTRLB_CMD_WP;
-    while (NVMCTRL->INTFLAG.bit.DONE == 0) { }
+    // Invalidate CMCC cache before waiting to prevent stale reads
     invalidate_CMCC_cache();
+    while (NVMCTRL->INTFLAG.bit.DONE == 0) { }
 #else
     NVMCTRL->CTRLA.reg = NVMCTRL_CTRLA_CMDEX_KEY | NVMCTRL_CTRLA_CMD_WP;
     while (NVMCTRL->INTFLAG.bit.READY == 0) { }
@@ -147,8 +161,10 @@ bool FlashClass::write(const volatile void *flash_ptr, const void *data, uint32_
   NVMCTRL->CTRLA.bit.CACHEDIS1 = original_CACHEDIS1;
   // Memory barrier to ensure flash write completion before subsequent reads
   __DSB();
-  __ISB();
 #endif
+  
+  // Re-enable interrupts
+  interrupts();
   
   return true;
 }
@@ -160,19 +176,25 @@ bool FlashClass::erase(const volatile void *flash_ptr, uint32_t size)
     return false;
   }
   
+  // Disable interrupts during flash operations to prevent ISR conflicts
+  noInterrupts();
+  
   const uint8_t *ptr = (const uint8_t *)flash_ptr;
   while (size > ROW_SIZE) {
     if (!erase(ptr)) {
+      interrupts();  // Re-enable interrupts before returning
       return false;  // Erase failed - out of bounds
     }
     ptr += ROW_SIZE;
     size -= ROW_SIZE;
   }
   // Erase remaining partial or full row if any data remains
-  if (size > 0) {
-    return erase(ptr);
-  }
-  return true;
+  bool result = (size > 0) ? erase(ptr) : true;
+  
+  // Re-enable interrupts
+  interrupts();
+  
+  return result;
 }
 
 bool FlashClass::erase(const volatile void *flash_ptr)
@@ -192,7 +214,7 @@ bool FlashClass::erase(const volatile void *flash_ptr)
   // For SAMD21: NVMP * PAGE_SIZE = total flash
   // For SAMD51: NVMP represents blocks of 64 rows, so total flash = NVMP * PAGE_SIZE * 64
 #if defined(__SAMD51__)
-  uint32_t flash_size_bytes = NVMCTRL->PARAM.bit.NVMP * PAGE_SIZE * 64;
+  uint32_t flash_size_bytes = NVMCTRL->PARAM.bit.NVMP * PAGE_SIZE << 6;  // Multiply by 64
 #else
   uint32_t flash_size_bytes = NVMCTRL->PARAM.bit.NVMP * PAGE_SIZE;
 #endif
@@ -203,13 +225,13 @@ bool FlashClass::erase(const volatile void *flash_ptr)
 #if defined(__SAMD51__)
   NVMCTRL->ADDR.reg = ((uint32_t)flash_ptr);
   NVMCTRL->CTRLB.reg = NVMCTRL_CTRLB_CMDEX_KEY | NVMCTRL_CTRLB_CMD_EB;
-  while (!NVMCTRL->INTFLAG.bit.DONE) { }
+  // Invalidate CMCC cache before waiting to prevent stale reads
   invalidate_CMCC_cache();
+  while (!NVMCTRL->INTFLAG.bit.DONE) { }
   // Memory barrier to ensure erase completion
   __DSB();
-  __ISB();
 #else
-  NVMCTRL->ADDR.reg = ((uint32_t)flash_ptr) / 2;
+  NVMCTRL->ADDR.reg = ((uint32_t)flash_ptr) >> 1;  // Convert byte address to word address
   NVMCTRL->CTRLA.reg = NVMCTRL_CTRLA_CMDEX_KEY | NVMCTRL_CTRLA_CMD_ER;
   while (!NVMCTRL->INTFLAG.bit.READY) { }
 #endif
@@ -224,15 +246,10 @@ bool FlashClass::read(const volatile void *flash_ptr, void *data, uint32_t size)
     return false;
   }
   
-#if defined(__SAMD51__)
-  // Ensure all flash operations complete before reading
-  __DSB();
-#endif
-  
   memcpy(data, (const void *)flash_ptr, size);
   
 #if defined(__SAMD51__)
-  // Memory barrier after read to ensure data integrity
+  // Memory barrier to ensure read completes before returning
   __DSB();
 #endif
   
